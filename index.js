@@ -1,31 +1,26 @@
 const express = require('express')
 const cors = require('cors')
+const helmet = require('helmet')
 const { notFound, errorHandler } = require('./middlewares/errorMiddleware')
-const rateLimit = require('express-rate-limit')
 require('dotenv').config()
 
 const app = express()
 
 // Middlewares
-// const limiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 2, // limit each IP to 100 requests per windowMs
-// })
-// app.use(limiter)
-
-app.use(express.json())
+app.use(helmet()) // For security using HTTPS headers
+app.use(express.json()) // For parsing requests with JSON payloads
 app.use(
   cors({
-    origin: '*',
+    origin: 'https://broomies-frontend.vercel.app',
   })
-)
+) // For Cross Origin Requests
 
 // routes
-app.use('/dev', require('./routes/dev.routes'))
 app.use('/users', require('./routes/users.routes'))
 
-app.use(notFound)
-app.use(errorHandler)
+// Custom Middlewares
+app.use(notFound) // to handle undefined routes with a 404 error.
+app.use(errorHandler) // to send error message to frontend.
 
 const PORT = process.env.PORT || 5000
 

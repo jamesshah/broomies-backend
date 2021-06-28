@@ -8,7 +8,9 @@ const asyncHandler = require('express-async-handler')
 const SCHEMA = process.env.HARPER_DB_SCHEMA_NAME
 const TABLE = 'users'
 
-// fetch all the users from the database
+// @desc    Get all users
+// @route   GET /users
+// @access  Private
 exports.getAllUsers = async (req, res) => {
   console.log('getAll: [GET] /users/')
 
@@ -32,21 +34,21 @@ exports.getAllUsers = async (req, res) => {
 
   const user = await result.data[0]
 
-  // console.log(user.location)
-
   try {
     const QUERY = `SELECT *, geoDistance("[${user.location.center}]", location) as distance FROM ${SCHEMA}.${TABLE} ORDER BY distance ASC`
-    // console.log(QUERY)
+
     const users = await client.query(QUERY)
     res.json(users.data)
   } catch (error) {
-    console.error('ERROR in getAllUsers : ', error)
+    console.error(error)
     res.status(500)
-    throw new Error('Some error occurred.')
+    throw new Error('Internal Server Error.')
   }
 }
 
-// fetch a single user from database using username
+// @desc    Get single user
+// @route   GET /users/:username
+// @access  Public
 exports.getOneUser = asyncHandler(async (req, res) => {
   console.log('getOneUser : [GET] /users/:username')
 
@@ -72,18 +74,18 @@ exports.getOneUser = asyncHandler(async (req, res) => {
   const user = await client.searchByValue(options)
 
   if (user.data.length !== 0) {
-    // console.log(user.data)
     res.json(user.data[0])
   } else {
     res.status(404)
     throw new Error('User not found.')
   }
-
-  // console.log(user)
 })
 
-// add a new user to database
+// @desc    Register a new user
+// @route   POST /users
+// @access  Public
 exports.registerUser = asyncHandler(async (req, res) => {
+  console.log('registerUser : [POST] /users')
   const { username, email, password, location, gender, category } = req.body
 
   const user = await client.query(
@@ -91,11 +93,9 @@ exports.registerUser = asyncHandler(async (req, res) => {
   )
 
   if (user.data.length != 0) {
-    console.log('createOneUser: [ERROR] : User already exists')
     res.status(400)
     throw new Error('Username / Email already exists.')
   } else {
-    // console.log('createOneUser: [POST] /users/')
     try {
       const hashedPassword = await generateHashPassword(password)
 
@@ -117,7 +117,6 @@ exports.registerUser = asyncHandler(async (req, res) => {
           },
         ],
       })
-      // console.log(user)
       res.status(201).json({
         id: user.data.inserted_hashes[0],
         username: username,
@@ -140,17 +139,13 @@ exports.registerUser = asyncHandler(async (req, res) => {
   }
 })
 
-// Authenticate a user and send a jwt token for authorization
+// @desc    Auth user & get token
+// @route   POST /users/login
+// @access  Public
 exports.authUser = asyncHandler(async (req, res) => {
   console.log('authUser: [POST] /users/login')
 
   const { username, password } = req.body
-  // console.log(username, password)
-
-  // const QUERY = `SELECT * FROM ${SCHEMA}.${TABLE} WHERE username="${username}"`
-  // let user = await client.query(QUERY)
-
-  // console.log(username)
 
   const options = {
     table: TABLE,
@@ -160,10 +155,8 @@ exports.authUser = asyncHandler(async (req, res) => {
   }
 
   const user = await client.searchByValue(options)
-  // console.log({ ...user.data[0], name: 'james' })
 
   if (user.data.length === 0) {
-    console.log('no user')
     res.status(401)
     throw new Error('Username does not exist.')
   } else if (!(await bcrypt.compare(password, user.data[0].password))) {
@@ -178,10 +171,11 @@ exports.authUser = asyncHandler(async (req, res) => {
   }
 })
 
-// Get User Profile
+// @desc    Get user profile
+// @route   POST /users/profile
+// @access  Private
 exports.getUserProfile = asyncHandler(async (req, res) => {
   console.log('getUserProfile: [GET] /users/profile')
-  // console.log(req.user)
 
   const user = await client.searchByHash({
     table: 'users',
@@ -201,8 +195,6 @@ exports.getUserProfile = asyncHandler(async (req, res) => {
     ],
   })
 
-  // console.log(user)
-
   if (user) {
     res.json(user.data[0])
   } else {
@@ -211,11 +203,11 @@ exports.getUserProfile = asyncHandler(async (req, res) => {
   }
 })
 
-// Update Profile
+// @desc    Update user profile
+// @route   PUT users/profile
+// @access  Private
 exports.updateUserProfile = asyncHandler(async (req, res) => {
-  console.log('updateUserProfile: [PUT] /users/account')
-
-  // console.log(req.user)
+  console.log('updateUserProfile: [PUT] /users/profile')
 
   if (req.user.username) {
     const check0 = await client.searchByValue({
@@ -252,8 +244,6 @@ exports.updateUserProfile = asyncHandler(async (req, res) => {
     attributes: ['*'],
   })
 
-  // console.log(user)
-
   if (user) {
     updatedUser.username = req.body.username || user.data[0].username
     updatedUser.email = req.body.email || user.data[0].email
@@ -277,8 +267,6 @@ exports.updateUserProfile = asyncHandler(async (req, res) => {
       records: [updatedUser],
     })
 
-    // console.log(updateUser)
-
     res.status(201).json({
       id: updatedUser.id,
       username: updatedUser.username,
@@ -299,6 +287,9 @@ exports.updateUserProfile = asyncHandler(async (req, res) => {
   }
 })
 
+// @desc    Add user to favourites
+// @route   POST users/favourites
+// @access  Private
 exports.addFavourites = asyncHandler(async (req, res) => {
   console.log('addFavourites: [POST] /users/favourites')
 
@@ -307,45 +298,41 @@ exports.addFavourites = asyncHandler(async (req, res) => {
     throw new Error('User cannot add themself to the favourites')
   }
 
-  const QUERY0 = `SELECT id FROM ${SCHEMA}.favourites WHERE user_id="${req.user.id}" AND favourite_id="${req.body.favourite_id}"`
+  const alreadyExists = `SELECT id FROM ${SCHEMA}.favourites WHERE user_id="${req.user.id}" AND favourite_id="${req.body.favourite_id}"`
 
-  const result = await client.query(QUERY0)
-  // console.log(result.data.length)
+  const result = await client.query(alreadyExists)
+
   if (result.data.length != 0) {
     res.status(409)
     throw new Error('Already exists in Favourite')
   }
 
   try {
-    const QUERY = `INSERT INTO ${SCHEMA}.favourites (user_id, favourite_id) VALUES("${req.user.id}", "${req.body.favourite_id}")`
+    const insert = `INSERT INTO ${SCHEMA}.favourites (user_id, favourite_id) VALUES("${req.user.id}", "${req.body.favourite_id}")`
 
-    const result = await client.query(QUERY)
+    const result = await client.query(insert)
 
     const addedFavourite = await client.query(
       `SELECT id, username, email, bio, location, category, gender, facebook,instagram, twitter, linkedin FROM ${SCHEMA}.users WHERE id="${req.body.favourite_id}"`
     )
 
-    // const QUERY1 = `SELECT id, email, username, location FROM ${SCHEMA}.users WHERE id="${req.body.favourite_id}"`
-
-    // const addedFavourite = await client.query(QUERY1)
-
-    // console.log(addedFavourite)
     res.json({ newFavourite: addedFavourite.data[0] })
   } catch (error) {
-    console.error('Error occurred in addFavourites')
     res.status(500)
     throw new Error('Internal Server Error')
   }
 })
 
+// @desc    Delete user from favourites
+// @route   DELETE users/favourites
+// @access  Private
 exports.deleteFavourites = asyncHandler(async (req, res) => {
   console.log('deleteFavourites: [DELETE] /users/favourites')
 
-  const QUERY = `DELETE FROM ${SCHEMA}.favourites WHERE user_id="${req.user.id}" AND favourite_id="${req.body.favourite_id}"`
+  const deleteFavourites = `DELETE FROM ${SCHEMA}.favourites WHERE user_id="${req.user.id}" AND favourite_id="${req.body.favourite_id}"`
 
-  const result = await client.query(QUERY)
+  const result = await client.query(deleteFavourites)
 
-  // console.log(result)
   if (result.data.deleted_hashes.length === 0) {
     res.status(404)
     throw new Error('Cannot Delete. User Does Not Exist in Favourites.')
@@ -356,33 +343,36 @@ exports.deleteFavourites = asyncHandler(async (req, res) => {
   })
 })
 
+// @desc    Get all favourites
+// @route   GET users/favourites
+// @access  Private
 exports.getFavourites = asyncHandler(async (req, res) => {
   console.log('getFavourites: [GET] /users/favourites')
 
   try {
-    const QUERY = `SELECT u.id, u.email, u.username, u.location, u.category, u.gender, u.bio, u.facebook, u.instagram, u.twitter, u.linkedin FROM findaroommate.users AS u INNER JOIN findaroommate.favourites AS f ON u.id = f.favourite_id WHERE f.user_id = "${req.user.id}"`
+    const getFavs = `SELECT u.id, u.email, u.username, u.location, u.category, u.gender, u.bio, u.facebook, u.instagram, u.twitter, u.linkedin FROM findaroommate.users AS u INNER JOIN findaroommate.favourites AS f ON u.id = f.favourite_id WHERE f.user_id = "${req.user.id}"`
 
-    let favourites = await client.query(QUERY)
+    let favourites = await client.query(getFavs)
 
     res.json(favourites.data)
   } catch (error) {
-    console.error('Error occurred in getFavourites', error)
     res.status(500)
     throw new Error('Internal Server Error')
   }
 })
 
+// @desc    Search users by location
+// @route   POST users/search
+// @access  Private
 exports.getSearchUsers = asyncHandler(async (req, res) => {
   console.log('getSearchUsers: [POST] /users/search')
-  // console.log(req.body)
 
   try {
-    const QUERY = `SELECT * FROM ${SCHEMA}.${TABLE} WHERE geoNear("[${req.body.searchLocation.center}]", location, 200, 'kilometers')`
+    const getUsers = `SELECT * FROM ${SCHEMA}.${TABLE} WHERE geoNear("[${req.body.searchLocation.center}]", location, 200, 'kilometers')`
 
-    const users = await client.query(QUERY)
+    const users = await client.query(getUsers)
     res.json(users.data)
   } catch (error) {
-    console.log(error)
     res.status(500)
     throw new Error('Internal Server Error')
   }
